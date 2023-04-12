@@ -15,19 +15,23 @@ export default {
     ),
     external: [
         '@0bdx/ainta',
+        'picodb',
     ],
     plugins: [ nodeResolve(), fixJSDoc() ],
 }
 
 // Fixes typings issues.
-//
-// @TODO use it or lose it
 function fixJSDoc() {
     return {
         name: 'fix-js-doc',
         transform(source, id) {
             if (id.slice(-3) !== '.js') return null; // only transform JavaScript
-            return source;
+            return source
+                .replace(
+                    "import('./mongoish-client.js').default",
+                    'MongoishClient'
+                )
+            ;
         }
     }
 }

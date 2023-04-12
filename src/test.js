@@ -1,7 +1,13 @@
 import {
-    foo,
+    Collection,
+    Database,
+    MongoishClient,
 } from './index.js';
 
-import { fooTest } from './foo.js';
+import { collectionTest } from './collection.js';
+import { databaseTest } from './database.js';
+import { mongoishClientTest } from './mongoish-client.js';
 
-fooTest(foo);
+collectionTest(Collection);
+databaseTest(Database);
+mongoishClientTest(MongoishClient);

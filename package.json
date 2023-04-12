@@ -1,7 +1,7 @@
 {
   "name": "@0bdx/mongoish",
   "version": "0.0.1",
-  "description": "Wraps PicoDB in a `collection()` interface, to make it more like MongoDB.",
+  "description": "An in-memory database client, based on `picodb`.",
   "type": "module",
   "files": [
     "mongoish.d.ts",

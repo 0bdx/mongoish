@@ -1,1 +1,3 @@
-export { default as foo } from './foo.js';
+export { default as Collection } from './collection.js';
+export { default as Database } from './database.js';
+export { default as MongoishClient } from './mongoish-client.js';
