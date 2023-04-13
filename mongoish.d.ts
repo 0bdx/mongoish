@@ -18,10 +18,28 @@ export class Collection {
     _collectionName: string;
     _picodb: any;
     /**
+     * ### Inserts several documents into the collection.
+     *
+     * @param {object[]} documents
+     *    The arrays of documents to insert into the collection.
+     * @returns {Promise<{acknowledged:true,insertedCount:number,insertedIds:Object<string,string>}>}
+     *    Returns a `Promise` which resolves to an array of results-objects.
+     * @throws
+     *    Throws an `Error` if the `documents` argument is invalid,
+     *    or if the client is not currently connected.
+     */
+    insertMany(documents: object[]): Promise<{
+        acknowledged: true;
+        insertedCount: number;
+        insertedIds: {
+            [x: string]: string;
+        };
+    }>;
+    /**
      * ### Inserts a single document into the collection.
      *
      * @param {object} document
-     *    The `Document` to insert into the collection.
+     *    The document to insert into the collection.
      * @returns {Promise<{acknowledged:true,insertedId:string}>}
      *    Returns a `Promise` which resolves to a simple results-object.
      * @throws

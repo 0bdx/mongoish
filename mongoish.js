@@ -4,7 +4,7 @@
  * @license Copyright (c) 2023 0bdx <0@0bdx.com> (0bdx.com)
  * SPDX-License-Identifier: MIT
  */
-import { aintaObject, aintaString } from '@0bdx/ainta';
+import { aintaObject, aintaString, aintaArray } from '@0bdx/ainta';
 import PicoDB from 'picodb';
 
 /**
@@ -49,10 +49,67 @@ class Collection {
     }
 
     /**
+     * ### Inserts several documents into the collection.
+     * 
+     * @param {object[]} documents
+     *    The arrays of documents to insert into the collection.
+     * @returns {Promise<{acknowledged:true,insertedCount:number,insertedIds:Object<string,string>}>}
+     *    Returns a `Promise` which resolves to an array of results-objects.
+     * @throws
+     *    Throws an `Error` if the `documents` argument is invalid,
+     *    or if the client is not currently connected.
+     */
+    async insertMany(documents) {
+        const begin = 'insertMany()';
+
+        // Validate the `documents` argument.
+        const aDocuments = aintaArray(documents, 'documents', { begin,
+            types:['object'] });
+        if (aDocuments) throw Error(aDocuments);
+
+        // Check that the client is currently connected.
+        if (!this._client._isConnected) throw Error(
+            begin + ': Client must be connected before running operations');
+
+        // Get an array containing just the `documents` which provide an `_id`.
+        const docsWithIds = documents.filter(d => d._id);
+        if (docsWithIds.length) {
+            // Get an array of just the `_id` strings.
+            const ids = docsWithIds.map(d => d._id);
+
+            // Check for duplicate `_ids` within the `documents` argument.
+            const encountered = {};
+            docsWithIds.forEach(({ _id }, i) => {
+                if (_id in encountered) throw Error(`${begin}: ` +
+                    `\`documents[${i}]\` has the same \`_id\` '${_id}' as ` +
+                    `\`documents[${encountered[_id]}]\``);
+                else encountered[_id] = i; });
+
+            // Check for `_ids` which already exist in the collection.
+            const dupes = await this._picodb.find({ _id:{$in:ids} }).toArray();
+            if (dupes.length) throw Error(`${begin}: Collection ` +
+                `'${this._collectionName}' already contains a document with ` + 
+                `\`_id\` '${dupes[0]._id}'`);
+        }
+
+        // Pass the `insertMany()` call on to this collection's PicoDB instance.
+        const result = await this._picodb.insertMany(documents);
+
+        // Return an array of results-objects:
+        // - `acknowledged: true` indicates that `insertMany()` succeeded
+        // - `insertedId` is the unique identifier of the inserted document
+        return {
+            acknowledged: true,
+            insertedCount: result.length,
+            insertedIds: result.reduce((a,d,i) => ({ ...a, [i]:d._id}), {}),
+        };
+    }
+
+    /**
      * ### Inserts a single document into the collection.
      * 
      * @param {object} document
-     *    The `Document` to insert into the collection.
+     *    The document to insert into the collection.
      * @returns {Promise<{acknowledged:true,insertedId:string}>}
      *    Returns a `Promise` which resolves to a simple results-object.
      * @throws

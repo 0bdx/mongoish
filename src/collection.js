@@ -1,4 +1,4 @@
-import { aintaObject, aintaString } from '@0bdx/ainta';
+import { aintaArray, aintaObject, aintaString } from '@0bdx/ainta';
 import PicoDB from 'picodb';
 
 /**
@@ -43,10 +43,67 @@ export default class Collection {
     }
 
     /**
+     * ### Inserts several documents into the collection.
+     * 
+     * @param {object[]} documents
+     *    The arrays of documents to insert into the collection.
+     * @returns {Promise<{acknowledged:true,insertedCount:number,insertedIds:Object<string,string>}>}
+     *    Returns a `Promise` which resolves to an array of results-objects.
+     * @throws
+     *    Throws an `Error` if the `documents` argument is invalid,
+     *    or if the client is not currently connected.
+     */
+    async insertMany(documents) {
+        const begin = 'insertMany()';
+
+        // Validate the `documents` argument.
+        const aDocuments = aintaArray(documents, 'documents', { begin,
+            types:['object'] });
+        if (aDocuments) throw Error(aDocuments);
+
+        // Check that the client is currently connected.
+        if (!this._client._isConnected) throw Error(
+            begin + ': Client must be connected before running operations');
+
+        // Get an array containing just the `documents` which provide an `_id`.
+        const docsWithIds = documents.filter(d => d._id);
+        if (docsWithIds.length) {
+            // Get an array of just the `_id` strings.
+            const ids = docsWithIds.map(d => d._id);
+
+            // Check for duplicate `_ids` within the `documents` argument.
+            const encountered = {};
+            docsWithIds.forEach(({ _id }, i) => {
+                if (_id in encountered) throw Error(`${begin}: ` +
+                    `\`documents[${i}]\` has the same \`_id\` '${_id}' as ` +
+                    `\`documents[${encountered[_id]}]\``);
+                else encountered[_id] = i });
+
+            // Check for `_ids` which already exist in the collection.
+            const dupes = await this._picodb.find({ _id:{$in:ids} }).toArray();
+            if (dupes.length) throw Error(`${begin}: Collection ` +
+                `'${this._collectionName}' already contains a document with ` + 
+                `\`_id\` '${dupes[0]._id}'`);
+        }
+
+        // Pass the `insertMany()` call on to this collection's PicoDB instance.
+        const result = await this._picodb.insertMany(documents);
+
+        // Return an array of results-objects:
+        // - `acknowledged: true` indicates that `insertMany()` succeeded
+        // - `insertedId` is the unique identifier of the inserted document
+        return {
+            acknowledged: true,
+            insertedCount: result.length,
+            insertedIds: result.reduce((a,d,i) => ({ ...a, [i]:d._id}), {}),
+        };
+    }
+
+    /**
      * ### Inserts a single document into the collection.
      * 
      * @param {object} document
-     *    The `Document` to insert into the collection.
+     *    The document to insert into the collection.
      * @returns {Promise<{acknowledged:true,insertedId:string}>}
      *    Returns a `Promise` which resolves to a simple results-object.
      * @throws
@@ -128,7 +185,7 @@ export default class Collection {
  *    Throws an `Error` if a test fails.
  */
 export async function collectionTest(C) {
-    const e2l = e => e.stack.split('\n')[2].match(/([^\/]+\.js:\d+):\d+\)?$/)[1];
+    const e2l = e => (e.stack.split('\n')[2].match(/([^\/]+\.js:\d+):\d+\)?$/)||[])[1];
     const equal = (actual, expected) => { if (actual === expected) return;
         try { throw Error() } catch(err) { throw Error(`actual:\n${actual}\n` +
             `!== expected:\n${expected}\n...at ${e2l(err)}\n`) } };
@@ -145,7 +202,7 @@ export async function collectionTest(C) {
         _isConnected: true,
         connect: async () => {},
         close: async () => {},
-        db: dbName => dbMock,
+        db: _dbName => dbMock,
     };
 
     // Mock a `Database` instance.
@@ -188,6 +245,66 @@ export async function collectionTest(C) {
     // Create a `Collection` instance for testing.
     const coll_1 = new C(mcMock, 'coll_1');
     equal(coll_1.constructor.name, 'Collection');
+
+
+    /* ---------------------------- insertMany() ---------------------------- */
+
+    // Passing an invalid `documents` argument to `insertMany()` should fail.
+    throws(()=>coll_1.insertMany(null),
+        "insertMany(): `documents` is null not an array");
+    // @ts-expect-error
+    throws(()=>coll_1.insertMany('123'),
+        "insertMany(): `documents` is type 'string' not an array");
+    throws(()=>coll_1.insertMany([{ x:1 },[ 2 ]]),
+        "insertMany(): `documents[1]` is an array, not a regular object");
+
+    // Calling `insertMany()` when the `MongoishClient` is not connected should fail.
+    mcMock._isConnected = false;
+    throws(()=>coll_1.insertMany([{ x:3 },{ x:4 }]),
+        "insertMany(): Client must be connected before running operations");
+
+    // Passing a valid `documents` argument with `_id`s to `insertMany()` when
+    // the `MongoishClient` is connected should succeed.
+    mcMock._isConnected = true;
+    const insertManyWithIdPromise = coll_1.insertMany(
+        [ { _id:'abc', x:5 }, { _id:'def', x:6 } ] );
+    equal(insertManyWithIdPromise instanceof Promise, true);
+    const insertManyWithIdResult = await insertManyWithIdPromise;
+    equal(toStr(insertManyWithIdResult), toStr({
+        acknowledged: true,
+        insertedCount: 2,
+        insertedIds: {
+            0: 'abc',
+            1: 'def',
+        },
+    }));
+
+    // Passing a document with the same `_id` to `insertMany()` should fail.
+    // Only the first error is reported.
+    throws(()=>coll_1.insertMany(
+        [ { _id:'ghi', x:7 }, { x:8 }, { _id:'jkl', x:9 }, { x:10 },
+          { _id:'ghi', x:11 }, { _id:'jkl', x:12 }, { _id:'jkl', x:13 } ] ),
+        "insertMany(): `documents[2]` has the same `_id` 'ghi' as `documents[0]`");
+
+    // Passing a document with the same `_id` to `insertMany()` should fail.
+    // Only the first error is reported, and the ordering may be unexpected.
+    throws(()=>coll_1.insertMany(
+        [ { _id:'ghi', x:14 }, { x:15 }, { _id:'def', x:16 }, { _id:'abc', x:17 } ] ),
+        "insertMany(): Collection 'coll_1' already contains a document with `_id` 'abc'");
+
+    // Passing valid `documents` with no `_id` properties to `insertMany()`
+    // should make `picodb` generate base-36 `_id`s.
+    const insertManyAutoId = await coll_1.insertMany(
+        [ { x:18 }, { _id:'ghi', x:19 }, { x:20 } ]);
+    equal(insertManyAutoId.acknowledged, true);
+    equal(insertManyAutoId.insertedCount, 3);
+    equal(Object.keys(insertManyAutoId.insertedIds).length, 3);
+    equal(typeof insertManyAutoId.insertedIds[0], 'string');
+    equal(typeof insertManyAutoId.insertedIds[1], 'string');
+    equal(typeof insertManyAutoId.insertedIds[2], 'string');
+    equal(/^[0-9a-z]{1,12}$/.test(insertManyAutoId.insertedIds[0]), true);
+    equal(insertManyAutoId.insertedIds[1], 'ghi');
+    equal(/^[0-9a-z]{1,12}$/.test(insertManyAutoId.insertedIds[2]), true);
 
 
     /* ----------------------------- insertOne() ---------------------------- */
