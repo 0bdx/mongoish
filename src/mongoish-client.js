@@ -1,4 +1,4 @@
-import { aintaString } from '@0bdx/ainta';
+import { aintaFunction, aintaString } from '@0bdx/ainta';
 import Database from './database.js';
 
 /**
@@ -32,10 +32,15 @@ export default class MongoishClient {
         const aUrl = aintaString(url, 'url', { begin, min:11, max:1024,
             rx:/^mongodb:\/\/[!-\[\]-~]+$/});
         if (aUrl) throw Error(aUrl);
-
-        // Mock a real MongoDB client, which starts life disconnected.
-        this._isConnected = false;
     }
+
+    // Begin with a non-functional database engine. This must be replaced using
+    // `injectEngine()`, before `collection()` can be called.
+    /** @type {{new():Object,NAME:string,VERSION:string}} */
+    _Engine = NoopEngine;
+
+    // Simulate a real MongoDB client, which starts life disconnected.
+    _isConnected = false;
 
     /**
      * ### Enables the `db()` method.
@@ -50,6 +55,11 @@ export default class MongoishClient {
      *    Returns a `Promise` which does not resolve to anything.
      */
     async connect() {
+
+        // Check that a real database engine (eg PicoDB) has been injected.
+        if (!this._Engine || !this._Engine.NAME || !this._Engine.VERSION)
+        throw Error('connect(): A real database engine must be injected, ' +
+            'using `injectEngine()`');
 
         // Make `connect()` genuinely asynchronous, to avoid surprises when
         // switching to the `mongodb` package.
@@ -73,6 +83,11 @@ export default class MongoishClient {
      *    Returns a `Promise` which does not resolve to anything.
      */
     async close() {
+
+        // Check that a real database engine (eg PicoDB) has been injected.
+        if (!this._Engine || !this._Engine.NAME || !this._Engine.VERSION)
+        throw Error('close(): A real database engine must be injected, ' +
+            'using `injectEngine()`');
 
         // Immediately set the private `_isConnected` property, so that `db()`
         // will fail, without delay.
@@ -100,6 +115,11 @@ export default class MongoishClient {
     db(dbName) {
         const begin = 'db()';
 
+        // Check that a real database engine (eg PicoDB) has been injected.
+        if (!this._Engine || !this._Engine.NAME || !this._Engine.VERSION)
+            throw Error(begin + ': A real database engine must be injected, ' +
+                'using `injectEngine()`');
+
         // Validate the `dbName` argument.
         // @TODO consider making dbNames less restrictive
         const aDbName = aintaString(dbName, 'dbName', { begin, min:1, max:64,
@@ -113,6 +133,45 @@ export default class MongoishClient {
         // Return the database.
         return new Database(this, dbName);
     }
+
+    /**
+     * ### A `mongoish`-only method, for injecting an engine like `PicoDB`.
+     *
+     * @param {{new():Object,NAME:string,VERSION:string}} Engine
+     *    The database engine, which must be a class. Instantiating it should
+     *    return a collection object, with methods like `find()`, `insertOne()`.
+     * @returns {void}
+     *    Does not return anything.
+     */
+    injectEngine(Engine) {
+        const begin = 'injectEngine()';
+
+        // Check that a database engine has not already been injected.
+        if (this._Engine && (this._Engine.NAME || this._Engine.VERSION))
+        throw Error(begin + ': A database engine has already be injected, ' +
+            '`injectEngine()` can only be called once per client');
+
+        // Validate the `Engine` argument.
+        const aEngine =
+            aintaFunction(Engine, 'Engine', { begin })
+         || aintaString(Engine.NAME, 'Engine.NAME', { begin, min:1 })
+         || aintaString(Engine.VERSION, 'Engine.VERSION', { begin, min:1 })
+        ;
+        if (aEngine) throw Error(aEngine);
+
+        this._Engine = Engine;
+    }
+}
+
+/**
+ * ### A non-functional database engine.
+ * 
+ * The `NAME` and `VERSION` are falsey, which means that `connect()`, `close()`
+ * and `db()` will all fail.
+ */
+class NoopEngine {
+    static NAME = '';
+    static VERSION = '';
 }
 
 
@@ -133,7 +192,8 @@ export async function mongoishClientTest(C) {
     const equal = (actual, expected) => { if (actual === expected) return;
         try { throw Error() } catch(err) { throw Error(`actual:\n${actual}\n` +
             `!== expected:\n${expected}\n...at ${e2l(err)}\n`) } };
-    const throws = (actual, expected) => { try { actual() } catch (err) {
+    const throws = async (actual, expected) => { try { const result = actual();
+            if (result instanceof Promise) await result } catch (err) {
         if (err.message !== expected) { throw Error(`actual message:\n${err.message
             }\n!== expected message:\n${expected}\n...at ${e2l(err)}\n`)} return }
         throw Error(`expected message:\n${expected}\nbut nothing was thrown\n`) };
@@ -152,6 +212,39 @@ export async function mongoishClientTest(C) {
     // Create the first `MongoishClient` instance for testing.
     const mc_1 = new C('mongodb://1');
 
+    // Passing an invalid `Engine` argument to `injectEngine()` should fail.
+    throws(()=>mc_1.injectEngine(null),
+        "injectEngine(): `Engine` is null not type 'function'");
+    // @ts-expect-error
+    throws(()=>mc_1.injectEngine(),
+        "injectEngine(): `Engine` is type 'undefined' not 'function'");
+    // @ts-expect-error
+    throws(()=>mc_1.injectEngine(Promise),
+        "injectEngine(): `Engine.NAME` is type 'undefined' not 'string'");
+    // @ts-expect-error
+    throws(()=>mc_1.injectEngine(class { static NAME='' }),
+        "injectEngine(): `Engine.NAME` '' is not min 1");
+    // @ts-expect-error
+    throws(()=>mc_1.injectEngine(class { static NAME='ok' }),
+        "injectEngine(): `Engine.VERSION` is type 'undefined' not 'string'");
+    throws(()=>mc_1.injectEngine(class { static NAME='ok'; static VERSION='' }),
+        "injectEngine(): `Engine.VERSION` '' is not min 1");
+
+    // Calling `connect()`, `close()` or `db()` before `injectEngine()` should fail.
+    throws(()=>mc_1.connect(),
+        "connect(): A real database engine must be injected, using `injectEngine()`");
+    throws(()=>mc_1.close(),
+        "close(): A real database engine must be injected, using `injectEngine()`");
+    throws(()=>mc_1.db('db_name'),
+        "db(): A real database engine must be injected, using `injectEngine()`");
+
+    // Calling `injectEngine()` with a valid class should succeed.
+    equal(mc_1.injectEngine(class { static NAME='ok'; static VERSION='1.2.3' }));
+
+    // Calling `db()` before `connect()` should fail.
+    throws(()=>mc_1.db('db_1'),
+        "db(): Client must be connected before running operations");
+
     // Passing an invalid `dbName` argument to `db()` should fail.
     throws(()=>mc_1.db(null),
         "db(): `dbName` is null not type 'string'");
@@ -163,10 +256,6 @@ export async function mongoishClientTest(C) {
         "db(): `dbName` '1_db' fails /^[a-z][_a-z0-9]*$/");
     throws(()=>mc_1.db('myDb'), // capital letter "D"
         "db(): `dbName` 'myDb' fails /^[a-z][_a-z0-9]*$/");
-
-    // Calling `db()` before `connect()` should fail.
-    throws(()=>mc_1.db('db_1'),
-        "db(): Client must be connected before running operations");
 
     // Calling `db()` after `connect()` without waiting for the `Promise` to
     // resolve should fail.
@@ -187,6 +276,12 @@ export async function mongoishClientTest(C) {
     // Create the second `MongoishClient` instance for testing.
     const mc_2 = new C('mongodb://!~aA' + '1234567890'.repeat(101)); // 1024 chars
 
+    // Injecting the engine twice should fail.
+    mc_2.injectEngine(class { static NAME='one'; static VERSION='1' });
+    throws(()=>mc_2.injectEngine(class { static NAME='two'; static VERSION='2.2' }),
+        "injectEngine(): A database engine has already be injected, `injectEngine()` "
+        + "can only be called once per client");
+
     // `connect()` should return a `Promise` which does not resolve to anything.
     const connectPromise_2 = mc_2.connect();
     equal(connectPromise_2 instanceof Promise, true);
@@ -201,6 +296,7 @@ export async function mongoishClientTest(C) {
 
     // Create the third `MongoishClient` instance for testing.
     const mc_3 = new C('mongodb://localhost:27017'); // fairly standard
+    mc_3.injectEngine(class { static NAME='Third'; static VERSION='0' });
 
     // Calling `db()` after waiting for `connect()`...`close()`...`connect()`
     // should return a `Database` instance.
@@ -212,4 +308,5 @@ export async function mongoishClientTest(C) {
 
     // Xx.
     const coll_3 = db_3.collection('coll_3');
+
 }

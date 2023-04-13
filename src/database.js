@@ -21,10 +21,12 @@ export default class Database {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
+            _Engine: { types:['function'] },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
             db: { types:['function'] },
+            injectEngine: { types:['function'] },
         }});
         if (aClient) throw Error(aClient);
         const aDbName = aintaString(dbName, 'dbName', { begin });
@@ -122,13 +124,18 @@ export function databaseTest(C) {
         throw Error(`expected message:\n${expected}\nbut nothing was thrown\n`) };
     const toStr = value => JSON.stringify(value, null, '  ');
 
+    // Mock an engine.
+    class MockEngine { static NAME = 'MockEngine'; static VERSION = '1' }
+
     // Mock a `MongoishClient` instance.
     /** @type import('./mongoish-client').default */
     const mcMock = {
+        _Engine: MockEngine,
         _isConnected: true,
         connect: async () => {},
         close: async () => {},
         db: dbName => new Database(this, dbName),
+        injectEngine: _engine => {},
     };
 
     // Instantiating a `Database` with an invalid `client` should fail.
@@ -139,6 +146,9 @@ export function databaseTest(C) {
         "new Database(): `client` is null not a regular object");
     // @ts-expect-error
     throws(()=>new C({}, ''),
+        "new Database(): `client._Engine` is type 'undefined', not the `options.types` 'function'");
+    // @ts-expect-error
+    throws(()=>new C({ _Engine:MockEngine }, ''),
         "new Database(): `client._isConnected` is type 'undefined', not the `options.types` 'boolean'");
     // @ts-expect-error
     throws(()=>new C({ ...mcMock, connect:123 }, ''),
@@ -147,7 +157,7 @@ export function databaseTest(C) {
     throws(()=>new C({ ...mcMock, connect:mcMock.connect, close:false, db:mcMock.db }, ''),
         "new Database(): `client.close` is type 'boolean', not the `options.types` 'function'");
     // @ts-expect-error
-    throws(()=>new C({ _isConnected:false, connect:mcMock.connect, close:mcMock.close }, ''),
+    throws(()=>new C({ _Engine:MockEngine, _isConnected:false, connect:mcMock.connect, close:mcMock.close }, ''),
         "new Database(): `client.db` is type 'undefined', not the `options.types` 'function'");
 
     // Instantiating a `Database` with an invalid `dbName` should fail.

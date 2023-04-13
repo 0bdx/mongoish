@@ -1,5 +1,11 @@
 import { aintaArray, aintaObject, aintaString } from '@0bdx/ainta';
-import PicoDB from 'picodb';
+
+/**
+ * ### The object returned by `find()`.
+ * 
+ * @typedef {Object} Cursor
+ * @property {function} toArray
+ */
 
 /**
  * ### An in-memory Mongo-like collection, based on `picodb`.
@@ -22,10 +28,12 @@ export default class Collection {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
+            _Engine: { types:['function'] },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
             db: { types:['function'] },
+            injectEngine: { types:['function'] },
         }});
         if (aClient) throw Error(aClient);
         const aCollectionName = aintaString(
@@ -38,8 +46,10 @@ export default class Collection {
         // Store the collection's name, for better error messages.
         this._collectionName = collectionName;
 
-        // `new PicoDB()` actually creates a collection.
-        this._picodb = new PicoDB();
+        // Create an instance of the actual business-logic for the collection.
+        // If `injectEngine(PicoDB)` was called on `MongoishClient`, then this
+        // line is effectively `this._engine = new PicoDB()`.
+        this._engine = new client._Engine();
     }
 
     /**
@@ -80,14 +90,14 @@ export default class Collection {
                 else encountered[_id] = i });
 
             // Check for `_ids` which already exist in the collection.
-            const dupes = await this._picodb.find({ _id:{$in:ids} }).toArray();
+            const dupes = await this._engine.find({ _id:{$in:ids} }).toArray();
             if (dupes.length) throw Error(`${begin}: Collection ` +
                 `'${this._collectionName}' already contains a document with ` + 
                 `\`_id\` '${dupes[0]._id}'`);
         }
 
         // Pass the `insertMany()` call on to this collection's PicoDB instance.
-        const result = await this._picodb.insertMany(documents);
+        const result = await this._engine.insertMany(documents);
 
         // Return an array of results-objects:
         // - `acknowledged: true` indicates that `insertMany()` succeeded
@@ -122,13 +132,13 @@ export default class Collection {
             begin + ': Client must be connected before running operations');
 
         // If `document._id` has been set, check that it does not already exist.
-        if (document._id && await this._picodb.count({ _id:document._id }))
+        if (document._id && await this._engine.count({ _id:document._id }))
             throw Error(`${begin}: E11000 duplicate key error collection: ` +
                 `${this._collectionName}.documents index: _id_ dup key: ` + 
                 `{ _id: "${document._id}" }`);
 
         // Pass the `insertOne()` call on to this collection's PicoDB instance.
-        const result = await this._picodb.insertOne(document);
+        const result = await this._engine.insertOne(document);
 
         // Return a simple results-object:
         // - `acknowledged: true` indicates that `insertOne()` succeeded
@@ -146,7 +156,7 @@ export default class Collection {
      * 
      * @param {object} filter
      *    The search criteria.
-     * @returns {object}
+     * @returns {Cursor}
      *    Returns a cursor object.
      * @throws
      *    Throws an `Error` if the `filter` argument is invalid, or if the
@@ -164,7 +174,7 @@ export default class Collection {
             begin + ': Client must be connected before running operations');
 
         // Pass the `find()` call on to this collection's PicoDB instance.
-        const result = this._picodb.find(filter);
+        const result = this._engine.find(filter);
 
         // @TODO maybe validate `result`?
         return result;
@@ -177,14 +187,18 @@ export default class Collection {
 /**
  * ### `Collection` unit tests.
  * 
+ * Note that these tests also end up doing some basic testing of PicoDB.
+ * 
  * @param {typeof Collection} C
  *    The `Collection` class to test.
+ * @param {{new():Object,NAME:string,VERSION:string}} PicoDB
+ *    The `PicoDB` in-memory database engine.
  * @returns {Promise<void>}
  *    Returns a `Promise` which does not resolve to anything.
  * @throws
  *    Throws an `Error` if a test fails.
  */
-export async function collectionTest(C) {
+export async function collectionTest(C, PicoDB) {
     const e2l = e => (e.stack.split('\n')[2].match(/([^\/]+\.js:\d+):\d+\)?$/)||[])[1];
     const equal = (actual, expected) => { if (actual === expected) return;
         try { throw Error() } catch(err) { throw Error(`actual:\n${actual}\n` +
@@ -199,10 +213,12 @@ export async function collectionTest(C) {
     // Mock a `MongoishClient` instance.
     /** @type import('./mongoish-client').default */
     const mcMock = {
+        _Engine: PicoDB,
         _isConnected: true,
         connect: async () => {},
         close: async () => {},
         db: _dbName => dbMock,
+        injectEngine: _engine => {},
     };
 
     // Mock a `Database` instance.
@@ -223,9 +239,12 @@ export async function collectionTest(C) {
         "new Collection(): `client` is null not a regular object");
     // @ts-expect-error
     throws(()=>new C({}, ''),
+        "new Collection(): `client._Engine` is type 'undefined', not the `options.types` 'function'");
+    // @ts-expect-error
+    throws(()=>new C({ _Engine:PicoDB }, ''),
         "new Collection(): `client._isConnected` is type 'undefined', not the `options.types` 'boolean'");
     // @ts-expect-error
-    throws(()=>new C({ _isConnected:false, close:mcMock.close, db:mcMock.db }, ''),
+    throws(()=>new C({ _Engine:PicoDB, _isConnected:false, close:mcMock.close, db:mcMock.db }, ''),
         "new Collection(): `client.connect` is type 'undefined', not the `options.types` 'function'");
     // @ts-expect-error
     throws(()=>new C({ ...mcMock, close:mcMock.close, connect:'nope', db:mcMock.db }, ''),

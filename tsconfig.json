@@ -28,5 +28,5 @@
     },
 
     // Match all JavaScript files in the source directory.
-    "include": ["src/**/*.js"]
+    "include": [ "examples/**/*.js", "src/**/*.js"]
 }

@@ -1,4 +1,16 @@
 /**
+ * ### The object returned by `find()`.
+ */
+export type Cursor = {
+    toArray: Function;
+};
+/**
+ * ### The object returned by `find()`.
+ *
+ * @typedef {Object} Cursor
+ * @property {function} toArray
+ */
+/**
  * ### An in-memory Mongo-like collection, based on `picodb`.
  */
 export class Collection {
@@ -16,7 +28,7 @@ export class Collection {
     constructor(client: MongoishClient, collectionName: string);
     _client: MongoishClient;
     _collectionName: string;
-    _picodb: any;
+    _engine: any;
     /**
      * ### Inserts several documents into the collection.
      *
@@ -57,13 +69,13 @@ export class Collection {
      *
      * @param {object} filter
      *    The search criteria.
-     * @returns {object}
+     * @returns {Cursor}
      *    Returns a cursor object.
      * @throws
      *    Throws an `Error` if the `filter` argument is invalid, or if the
      *    client is not currently connected.
      */
-    find(filter: object): object;
+    find(filter: object): Cursor;
 }
 /**
  * ### An in-memory database, based on `picodb`.
@@ -137,6 +149,12 @@ export class MongoishClient {
      *    Throws an `Error` if the `url` argument is invalid.
      */
     constructor(url: string);
+    /** @type {{new():Object,NAME:string,VERSION:string}} */
+    _Engine: {
+        new (): any;
+        NAME: string;
+        VERSION: string;
+    };
     _isConnected: boolean;
     /**
      * ### Enables the `db()` method.
@@ -179,4 +197,18 @@ export class MongoishClient {
      *    client is not currently connected.
      */
     db(dbName: string): Database;
+    /**
+     * ### A `mongoish`-only method, for injecting an engine like `PicoDB`.
+     *
+     * @param {{new():Object,NAME:string,VERSION:string}} Engine
+     *    The database engine, which must be a class. Instantiating it should
+     *    return a collection object, with methods like `find()`, `insertOne()`.
+     * @returns {void}
+     *    Does not return anything.
+     */
+    injectEngine(Engine: {
+        new (): any;
+        NAME: string;
+        VERSION: string;
+    }): void;
 }

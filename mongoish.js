@@ -4,8 +4,14 @@
  * @license Copyright (c) 2023 0bdx <0@0bdx.com> (0bdx.com)
  * SPDX-License-Identifier: MIT
  */
-import { aintaObject, aintaString, aintaArray } from '@0bdx/ainta';
-import PicoDB from 'picodb';
+import { aintaObject, aintaString, aintaArray, aintaFunction } from '@0bdx/ainta';
+
+/**
+ * ### The object returned by `find()`.
+ * 
+ * @typedef {Object} Cursor
+ * @property {function} toArray
+ */
 
 /**
  * ### An in-memory Mongo-like collection, based on `picodb`.
@@ -28,10 +34,12 @@ class Collection {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
+            _Engine: { types:['function'] },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
             db: { types:['function'] },
+            injectEngine: { types:['function'] },
         }});
         if (aClient) throw Error(aClient);
         const aCollectionName = aintaString(
@@ -44,8 +52,10 @@ class Collection {
         // Store the collection's name, for better error messages.
         this._collectionName = collectionName;
 
-        // `new PicoDB()` actually creates a collection.
-        this._picodb = new PicoDB();
+        // Create an instance of the actual business-logic for the collection.
+        // If `injectEngine(PicoDB)` was called on `MongoishClient`, then this
+        // line is effectively `this._engine = new PicoDB()`.
+        this._engine = new client._Engine();
     }
 
     /**
@@ -86,14 +96,14 @@ class Collection {
                 else encountered[_id] = i; });
 
             // Check for `_ids` which already exist in the collection.
-            const dupes = await this._picodb.find({ _id:{$in:ids} }).toArray();
+            const dupes = await this._engine.find({ _id:{$in:ids} }).toArray();
             if (dupes.length) throw Error(`${begin}: Collection ` +
                 `'${this._collectionName}' already contains a document with ` + 
                 `\`_id\` '${dupes[0]._id}'`);
         }
 
         // Pass the `insertMany()` call on to this collection's PicoDB instance.
-        const result = await this._picodb.insertMany(documents);
+        const result = await this._engine.insertMany(documents);
 
         // Return an array of results-objects:
         // - `acknowledged: true` indicates that `insertMany()` succeeded
@@ -128,13 +138,13 @@ class Collection {
             begin + ': Client must be connected before running operations');
 
         // If `document._id` has been set, check that it does not already exist.
-        if (document._id && await this._picodb.count({ _id:document._id }))
+        if (document._id && await this._engine.count({ _id:document._id }))
             throw Error(`${begin}: E11000 duplicate key error collection: ` +
                 `${this._collectionName}.documents index: _id_ dup key: ` + 
                 `{ _id: "${document._id}" }`);
 
         // Pass the `insertOne()` call on to this collection's PicoDB instance.
-        const result = await this._picodb.insertOne(document);
+        const result = await this._engine.insertOne(document);
 
         // Return a simple results-object:
         // - `acknowledged: true` indicates that `insertOne()` succeeded
@@ -152,7 +162,7 @@ class Collection {
      * 
      * @param {object} filter
      *    The search criteria.
-     * @returns {object}
+     * @returns {Cursor}
      *    Returns a cursor object.
      * @throws
      *    Throws an `Error` if the `filter` argument is invalid, or if the
@@ -170,7 +180,7 @@ class Collection {
             begin + ': Client must be connected before running operations');
 
         // Pass the `find()` call on to this collection's PicoDB instance.
-        const result = this._picodb.find(filter);
+        const result = this._engine.find(filter);
 
         // @TODO maybe validate `result`?
         return result;
@@ -197,10 +207,12 @@ class Database {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
+            _Engine: { types:['function'] },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
             db: { types:['function'] },
+            injectEngine: { types:['function'] },
         }});
         if (aClient) throw Error(aClient);
         const aDbName = aintaString(dbName, 'dbName', { begin });
@@ -305,10 +317,15 @@ class MongoishClient {
         const aUrl = aintaString(url, 'url', { begin, min:11, max:1024,
             rx:/^mongodb:\/\/[!-\[\]-~]+$/});
         if (aUrl) throw Error(aUrl);
-
-        // Mock a real MongoDB client, which starts life disconnected.
-        this._isConnected = false;
     }
+
+    // Begin with a non-functional database engine. This must be replaced using
+    // `injectEngine()`, before `collection()` can be called.
+    /** @type {{new():Object,NAME:string,VERSION:string}} */
+    _Engine = NoopEngine;
+
+    // Simulate a real MongoDB client, which starts life disconnected.
+    _isConnected = false;
 
     /**
      * ### Enables the `db()` method.
@@ -323,6 +340,11 @@ class MongoishClient {
      *    Returns a `Promise` which does not resolve to anything.
      */
     async connect() {
+
+        // Check that a real database engine (eg PicoDB) has been injected.
+        if (!this._Engine || !this._Engine.NAME || !this._Engine.VERSION)
+        throw Error('connect(): A real database engine must be injected, ' +
+            'using `injectEngine()`');
 
         // Make `connect()` genuinely asynchronous, to avoid surprises when
         // switching to the `mongodb` package.
@@ -346,6 +368,11 @@ class MongoishClient {
      *    Returns a `Promise` which does not resolve to anything.
      */
     async close() {
+
+        // Check that a real database engine (eg PicoDB) has been injected.
+        if (!this._Engine || !this._Engine.NAME || !this._Engine.VERSION)
+        throw Error('close(): A real database engine must be injected, ' +
+            'using `injectEngine()`');
 
         // Immediately set the private `_isConnected` property, so that `db()`
         // will fail, without delay.
@@ -373,6 +400,11 @@ class MongoishClient {
     db(dbName) {
         const begin = 'db()';
 
+        // Check that a real database engine (eg PicoDB) has been injected.
+        if (!this._Engine || !this._Engine.NAME || !this._Engine.VERSION)
+            throw Error(begin + ': A real database engine must be injected, ' +
+                'using `injectEngine()`');
+
         // Validate the `dbName` argument.
         // @TODO consider making dbNames less restrictive
         const aDbName = aintaString(dbName, 'dbName', { begin, min:1, max:64,
@@ -386,6 +418,45 @@ class MongoishClient {
         // Return the database.
         return new Database(this, dbName);
     }
+
+    /**
+     * ### A `mongoish`-only method, for injecting an engine like `PicoDB`.
+     *
+     * @param {{new():Object,NAME:string,VERSION:string}} Engine
+     *    The database engine, which must be a class. Instantiating it should
+     *    return a collection object, with methods like `find()`, `insertOne()`.
+     * @returns {void}
+     *    Does not return anything.
+     */
+    injectEngine(Engine) {
+        const begin = 'injectEngine()';
+
+        // Check that a database engine has not already been injected.
+        if (this._Engine && (this._Engine.NAME || this._Engine.VERSION))
+        throw Error(begin + ': A database engine has already be injected, ' +
+            '`injectEngine()` can only be called once per client');
+
+        // Validate the `Engine` argument.
+        const aEngine =
+            aintaFunction(Engine, 'Engine', { begin })
+         || aintaString(Engine.NAME, 'Engine.NAME', { begin, min:1 })
+         || aintaString(Engine.VERSION, 'Engine.VERSION', { begin, min:1 })
+        ;
+        if (aEngine) throw Error(aEngine);
+
+        this._Engine = Engine;
+    }
+}
+
+/**
+ * ### A non-functional database engine.
+ * 
+ * The `NAME` and `VERSION` are falsey, which means that `connect()`, `close()`
+ * and `db()` will all fail.
+ */
+class NoopEngine {
+    static NAME = '';
+    static VERSION = '';
 }
 
 export { Collection, Database, MongoishClient };
