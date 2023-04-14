@@ -28,7 +28,7 @@ export default class Collection {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
-            _Engine: { types:['function'] },
+            _Engine: { types:['function'], open:true },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },

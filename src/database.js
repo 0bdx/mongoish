@@ -21,7 +21,7 @@ export default class Database {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
-            _Engine: { types:['function'] },
+            _Engine: { types:['function'], open:true },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
@@ -74,7 +74,7 @@ export default class Database {
     }
 
     /**
-     * ### Drop the database, by removing all collections.
+     * ### Asynchronously drops the database, by removing all collections.
      * 
      * @returns {Promise<true>}
      *    Returns a `Promise` which resolves to `true`.

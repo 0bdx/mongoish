@@ -34,7 +34,7 @@ class Collection {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
-            _Engine: { types:['function'] },
+            _Engine: { types:['function'], open:true },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
@@ -207,7 +207,7 @@ class Database {
         // Validate the arguments.
         // @TODO maybe validate fully
         const aClient = aintaObject(client, 'client', { begin, schema: {
-            _Engine: { types:['function'] },
+            _Engine: { types:['function'], open:true },
             _isConnected: { types:['boolean'] },
             close: { types:['function'] },
             connect: { types:['function'] },
@@ -260,7 +260,7 @@ class Database {
     }
 
     /**
-     * ### Drop the database, by removing all collections.
+     * ### Asynchronously drops the database, by removing all collections.
      * 
      * @returns {Promise<true>}
      *    Returns a `Promise` which resolves to `true`.
@@ -437,10 +437,12 @@ class MongoishClient {
             '`injectEngine()` can only be called once per client');
 
         // Validate the `Engine` argument.
+        // @TODO consider how to validate this... is it always for PicDB?
         const aEngine =
-            aintaFunction(Engine, 'Engine', { begin })
-         || aintaString(Engine.NAME, 'Engine.NAME', { begin, min:1 })
-         || aintaString(Engine.VERSION, 'Engine.VERSION', { begin, min:1 })
+            aintaFunction(Engine, 'Engine', { begin, schema:{
+                NAME: { min:1, types:['string'] },
+                VERSION: { min:1, types:['string'] },
+            } })
         ;
         if (aEngine) throw Error(aEngine);
 

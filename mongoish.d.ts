@@ -107,7 +107,7 @@ export class Database {
      */
     collection(collectionName: string): Collection;
     /**
-     * ### Drop the database, by removing all collections.
+     * ### Asynchronously drops the database, by removing all collections.
      *
      * @returns {Promise<true>}
      *    Returns a `Promise` which resolves to `true`.

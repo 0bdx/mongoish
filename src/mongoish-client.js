@@ -152,10 +152,12 @@ export default class MongoishClient {
             '`injectEngine()` can only be called once per client');
 
         // Validate the `Engine` argument.
+        // @TODO consider how to validate this... is it always for PicDB?
         const aEngine =
-            aintaFunction(Engine, 'Engine', { begin })
-         || aintaString(Engine.NAME, 'Engine.NAME', { begin, min:1 })
-         || aintaString(Engine.VERSION, 'Engine.VERSION', { begin, min:1 })
+            aintaFunction(Engine, 'Engine', { begin, schema:{
+                NAME: { min:1, types:['string'] },
+                VERSION: { min:1, types:['string'] },
+            } })
         ;
         if (aEngine) throw Error(aEngine);
 
@@ -220,13 +222,13 @@ export async function mongoishClientTest(C) {
         "injectEngine(): `Engine` is type 'undefined' not 'function'");
     // @ts-expect-error
     throws(()=>mc_1.injectEngine(Promise),
-        "injectEngine(): `Engine.NAME` is type 'undefined' not 'string'");
+        "injectEngine(): `Engine.NAME` is type 'undefined', not the `options.types` 'string'");
     // @ts-expect-error
     throws(()=>mc_1.injectEngine(class { static NAME='' }),
         "injectEngine(): `Engine.NAME` '' is not min 1");
     // @ts-expect-error
     throws(()=>mc_1.injectEngine(class { static NAME='ok' }),
-        "injectEngine(): `Engine.VERSION` is type 'undefined' not 'string'");
+        "injectEngine(): `Engine.VERSION` is type 'undefined', not the `options.types` 'string'");
     throws(()=>mc_1.injectEngine(class { static NAME='ok'; static VERSION='' }),
         "injectEngine(): `Engine.VERSION` '' is not min 1");
 
