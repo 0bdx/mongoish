@@ -2,7 +2,7 @@
 
 __An in-memory database client, based on `picodb`.__
 
-∅&nbsp; __Version:__ 0.0.1  
+∅&nbsp; __Version:__ 0.0.2  
 ∅&nbsp; __NPM:__ <https://www.npmjs.com/package/@0bdx/mongoish>  
 ∅&nbsp; __Repo:__ <https://github.com/0bdx/mongoish>  
 ∅&nbsp; __Homepage:__ <https://0bdx.com/mongoish>

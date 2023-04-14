@@ -42,7 +42,7 @@ Install the five dev-dependencies and one dependency:
 @types/node 18.13.0, 1 package, 3.6 MB for 126 items.  
 picodb Xx.  
 rollup 3.20.2, 2 packages, 2.6 MB for 32 items.  
-@0bdx/ainta 0.0.15, 1 package, 84 kB for 7 items.  
+@0bdx/ainta 0.0.16, 1 package, 84 kB for 7 items.  
 
 Open the `mongoish` repo in VS Code:  
 `code .`
